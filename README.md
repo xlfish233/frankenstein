@@ -86,7 +86,7 @@ let send_message_params = SendMessageParams::builder()
 
 ### Making requests
 
-```rust,no_run
+```rust,ignore
 #![cfg(feature = "client-ureq")]
 use frankenstein::TelegramApi;
 use frankenstein::client_ureq::Bot;
@@ -119,13 +119,16 @@ See more examples in the [`examples`](https://github.com/ayrat555/frankenstein/t
 Some methods in the API allow uploading files. In the Frankenstein for this `FileUpload` enum is used:
 
 ```rust
+# use bytes::Bytes;
+# fn main() {}
 pub enum FileUpload {
     InputFile(InputFile),
     String(String),
 }
 
-pub struct InputFile {
-    path: std::path::PathBuf
+pub enum InputFile {
+    Path(std::path::PathBuf),
+    Memory { file_name: String, data: Bytes },
 }
 ```
 
@@ -133,6 +136,7 @@ It has two variants:
 
 - `FileUpload::String` is used to pass the ID of the already uploaded file
 - `FileUpload::InputFile` is used to upload a new file using multipart upload.
+- 可以通过 `InputFile::memory("image.png", bytes)` 直接上传内存字节数据。
 
 ### Documentation
 

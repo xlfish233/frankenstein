@@ -19,7 +19,7 @@ fn main() {
     let file = std::path::PathBuf::from("./frankenstein_logo_sticker.png");
 
     let sticker = InputSticker::builder()
-        .sticker(FileUpload::InputFile(InputFile { path: file }))
+        .sticker(FileUpload::InputFile(InputFile::from(file)))
         .format(StickerFormat::Static)
         .emoji_list(vec!["🦁".to_string()])
         .build();

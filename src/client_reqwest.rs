@@ -1,8 +1,7 @@
-use std::path::PathBuf;
-
 use async_trait::async_trait;
 use bon::Builder;
 
+use crate::input_file::InputFile;
 use crate::trait_async::AsyncTelegramApi;
 use crate::Error;
 
@@ -93,7 +92,7 @@ impl AsyncTelegramApi for Bot {
         &self,
         method: &str,
         params: Params,
-        files: Vec<(&str, PathBuf)>,
+        files: Vec<(String, InputFile)>,
     ) -> Result<Output, Self::Error>
     where
         Params: serde::ser::Serialize + std::fmt::Debug + std::marker::Send,
@@ -107,11 +106,11 @@ impl AsyncTelegramApi for Bot {
             let json_string = crate::json::encode(&params)?;
             let json_struct: serde_json::Map<String, Value> =
                 serde_json::from_str(&json_string).unwrap();
-            let file_keys: Vec<&str> = files.iter().map(|(key, _)| *key).collect();
+            let file_keys: Vec<String> = files.iter().map(|(key, _)| key.clone()).collect();
 
             let mut form = multipart::Form::new();
             for (key, val) in json_struct {
-                if !file_keys.contains(&key.as_str()) {
+                if !file_keys.iter().any(|candidate| candidate == &key) {
                     form = match val {
                         Value::String(val) => form.text(key, val),
                         other => form.text(key, other.to_string()),
@@ -119,13 +118,22 @@ impl AsyncTelegramApi for Bot {
                 }
             }
 
-            for (parameter_name, file_path) in files {
-                let file = tokio::fs::File::open(&file_path)
-                    .await
-                    .map_err(Error::ReadFile)?;
-                let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-                let part = multipart::Part::stream(file).file_name(file_name);
-                form = form.part(parameter_name.to_owned(), part);
+            for (parameter_name, input_file) in files {
+                let part = match input_file {
+                    InputFile::Path(file_path) => {
+                        let file = tokio::fs::File::open(&file_path)
+                            .await
+                            .map_err(Error::ReadFile)?;
+                        let file_name =
+                            file_path.file_name().unwrap().to_string_lossy().to_string();
+                        multipart::Part::stream(file).file_name(file_name)
+                    }
+                    InputFile::Memory { file_name, data } => {
+                        let len = data.len() as u64;
+                        multipart::Part::stream_with_length(data, len).file_name(file_name)
+                    }
+                };
+                form = form.part(parameter_name, part);
             }
 
             let url = format!("{}/{method}", self.api_url);

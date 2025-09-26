@@ -1,9 +1,7 @@
-use std::path::PathBuf;
-
 use crate::games::GameHighScore;
 use crate::gifts::{Gifts, OwnedGifts};
 use crate::inline_mode::{PreparedInlineMessage, SentWebAppMessage};
-use crate::input_file::HasInputFile;
+use crate::input_file::{HasInputFile, InputFile};
 use crate::input_media::{InputMedia, InputProfilePhoto, InputStoryContent, MediaGroupInputMedia};
 use crate::payments::{StarAmount, StarTransactions};
 use crate::response::{MessageOrBool, MethodResponse};
@@ -59,9 +57,10 @@ macro_rules! request_f {
                 params: &crate::methods::[<$name:camel Params>],
             ) -> Result<MethodResponse<$return>, Self::Error> {
                 let mut files = Vec::new();
+                let mut params = params.clone();
                 $(
-                    if let Some(path) = params.$fileproperty.clone_path() {
-                        files.push((stringify!($fileproperty), path));
+                    if let Some(file) = params.$fileproperty.replace_attach(stringify!($fileproperty)) {
+                        files.push((stringify!($fileproperty).to_string(), file));
                     }
                 )+
                 self.request_with_possible_form_data(stringify!($name), params, files).await
@@ -129,12 +128,7 @@ where
             }
         }
 
-        let files_with_str_names = files
-            .iter()
-            .map(|(key, path)| (key.as_str(), path.clone()))
-            .collect();
-
-        self.request_with_possible_form_data("sendMediaGroup", &params, files_with_str_names)
+        self.request_with_possible_form_data("sendMediaGroup", params, files)
             .await
     }
 
@@ -179,8 +173,9 @@ where
         &self,
         params: &crate::methods::SetChatPhotoParams,
     ) -> Result<MethodResponse<bool>, Self::Error> {
-        let photo = &params.photo;
-        self.request_with_form_data("setChatPhoto", params, vec![("photo", photo.path.clone())])
+        let params = params.clone();
+        let files = vec![("photo".to_string(), params.photo.clone())];
+        self.request_with_form_data("setChatPhoto", params, files)
             .await
     }
 
@@ -235,7 +230,7 @@ where
             ($base:ident. $property:ident) => {{
                 const NAME: &str = concat!(stringify!($base), "_", stringify!($property));
                 if let Some(file) = $base.$property.replace_attach(NAME) {
-                    files.push((NAME, file));
+                    files.push((NAME.to_string(), file));
                 }
             }};
         }
@@ -264,7 +259,7 @@ where
             }
         }
 
-        self.request_with_possible_form_data("editMessageMedia", &params, files)
+        self.request_with_possible_form_data("editMessageMedia", params, files)
             .await
     }
 
@@ -281,13 +276,10 @@ where
         &self,
         params: &crate::methods::UploadStickerFileParams,
     ) -> Result<MethodResponse<File>, Self::Error> {
-        let sticker = &params.sticker;
-        self.request_with_form_data(
-            "uploadStickerFile",
-            params,
-            vec![("sticker", sticker.path.clone())],
-        )
-        .await
+        let params = params.clone();
+        let files = vec![("sticker".to_string(), params.sticker.clone())];
+        self.request_with_form_data("uploadStickerFile", params, files)
+            .await
     }
 
     async fn create_new_sticker_set(
@@ -303,12 +295,7 @@ where
             }
         }
 
-        let files_with_str_names = files
-            .iter()
-            .map(|(key, path)| (key.as_str(), path.clone()))
-            .collect();
-
-        self.request_with_possible_form_data("createNewStickerSet", &params, files_with_str_names)
+        self.request_with_possible_form_data("createNewStickerSet", params, files)
             .await
     }
 
@@ -321,7 +308,7 @@ where
         let mut files = Vec::new();
         let mut params = params.clone();
         if let Some(file) = params.sticker.sticker.replace_attach("sticker_upload") {
-            files.push(("sticker_upload", file));
+            files.push(("sticker_upload".to_string(), file));
         }
         self.request_with_possible_form_data("addStickerToSet", params, files)
             .await
@@ -360,12 +347,12 @@ where
         match &mut params.photo {
             InputProfilePhoto::Static(photo_static) => {
                 if let Some(file) = photo_static.photo.replace_attach("photo_static") {
-                    files.push(("photo_static", file));
+                    files.push(("photo_static".to_string(), file));
                 }
             }
             InputProfilePhoto::Animated(photo_animated) => {
                 if let Some(file) = photo_animated.animation.replace_attach("photo_animated") {
-                    files.push(("photo_animated", file));
+                    files.push(("photo_animated".to_string(), file));
                 }
             }
         }
@@ -394,12 +381,12 @@ where
         match &mut params.content {
             InputStoryContent::Photo(photo_content) => {
                 if let Some(file) = photo_content.photo.replace_attach("photo_content") {
-                    files.push(("photo_content", file));
+                    files.push(("photo_content".to_string(), file));
                 }
             }
             InputStoryContent::Video(video_content) => {
                 if let Some(file) = video_content.video.replace_attach("video_content") {
-                    files.push(("video_content", file));
+                    files.push(("video_content".to_string(), file));
                 }
             }
         }
@@ -419,12 +406,12 @@ where
         match &mut params.content {
             InputStoryContent::Photo(photo_content) => {
                 if let Some(file) = photo_content.photo.replace_attach("photo_content") {
-                    files.push(("photo_content", file));
+                    files.push(("photo_content".to_string(), file));
                 }
             }
             InputStoryContent::Video(video_content) => {
                 if let Some(file) = video_content.video.replace_attach("video_content") {
-                    files.push(("video_content", file));
+                    files.push(("video_content".to_string(), file));
                 }
             }
         }
@@ -457,7 +444,7 @@ where
         &self,
         method_name: &str,
         params: Params,
-        files: Vec<(&str, PathBuf)>,
+        files: Vec<(String, InputFile)>,
     ) -> Result<Output, Self::Error>
     where
         Params: serde::ser::Serialize + std::fmt::Debug + std::marker::Send,
@@ -484,7 +471,7 @@ where
         &self,
         method: &str,
         params: Params,
-        files: Vec<(&str, PathBuf)>,
+        files: Vec<(String, InputFile)>,
     ) -> Result<Output, Self::Error>
     where
         Params: serde::ser::Serialize + std::fmt::Debug + std::marker::Send,

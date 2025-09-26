@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::io::Cursor;
 use std::time::Duration;
 
 use bon::Builder;
 use multipart::client::lazy::Multipart;
 use serde_json::Value;
 
+use crate::input_file::InputFile;
 use crate::trait_sync::TelegramApi;
 use crate::Error;
 
@@ -85,7 +86,7 @@ impl TelegramApi for Bot {
         &self,
         method: &str,
         params: Params,
-        files: Vec<(&str, PathBuf)>,
+        files: Vec<(String, InputFile)>,
     ) -> Result<Output, Error>
     where
         Params: serde::ser::Serialize + std::fmt::Debug,
@@ -94,11 +95,11 @@ impl TelegramApi for Bot {
         let json_string = crate::json::encode(&params)?;
         let json_struct: serde_json::Map<String, Value> =
             serde_json::from_str(&json_string).unwrap();
-        let file_keys: Vec<&str> = files.iter().map(|(key, _)| *key).collect();
+        let file_keys: Vec<String> = files.iter().map(|(key, _)| key.clone()).collect();
 
         let mut form = Multipart::new();
         for (key, val) in json_struct {
-            if !file_keys.contains(&key.as_str()) {
+            if !file_keys.iter().any(|candidate| candidate == &key) {
                 match val {
                     Value::String(val) => form.add_text(key, val),
                     other => form.add_text(key, other.to_string()),
@@ -106,15 +107,30 @@ impl TelegramApi for Bot {
             }
         }
 
-        for (parameter_name, file_path) in &files {
-            let file = std::fs::File::open(file_path).map_err(Error::ReadFile)?;
-            let file_name = file_path.file_name().unwrap().to_string_lossy();
-            let file_extension = file_path
-                .extension()
-                .and_then(std::ffi::OsStr::to_str)
-                .unwrap_or("");
-            let mime = mime_guess::from_ext(file_extension).first_or_octet_stream();
-            form.add_stream(*parameter_name, file, Some(file_name), Some(mime));
+        for (parameter_name, input_file) in files {
+            match input_file {
+                InputFile::Path(file_path) => {
+                    let name = parameter_name;
+                    let file = std::fs::File::open(&file_path).map_err(Error::ReadFile)?;
+                    let file_name = file_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned();
+                    let file_extension = file_path
+                        .extension()
+                        .and_then(std::ffi::OsStr::to_str)
+                        .unwrap_or("");
+                    let mime = mime_guess::from_ext(file_extension).first_or_octet_stream();
+                    form.add_stream(name, file, Some(file_name), Some(mime));
+                }
+                InputFile::Memory { file_name, data } => {
+                    let name = parameter_name;
+                    let mime = mime_guess::from_path(&file_name).first_or_octet_stream();
+                    let cursor = Cursor::new(data);
+                    form.add_stream(name, cursor, Some(file_name), Some(mime));
+                }
+            }
         }
 
         let url = format!("{}/{method}", self.api_url);

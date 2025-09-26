@@ -17,7 +17,7 @@ fn main() {
 
     let params = UploadStickerFileParams::builder()
         .user_id(user_id)
-        .sticker(InputFile { path: file })
+        .sticker(InputFile::from(file))
         .sticker_format(StickerFormat::Static)
         .build();
 
